@@ -1,0 +1,5 @@
+terraform-provider-virtuoso
+*.exe
+.terraform/
+*.tfstate*
+.terraform.lock.hcl
