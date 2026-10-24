@@ -7,7 +7,7 @@ terraform {
 }
 
 provider "virtuoso" {
-  endpoint = "https://192.168.33.99"
+  endpoint = "https://your-server"
   api_key  = var.virtuoso_api_key
   insecure = true
 }

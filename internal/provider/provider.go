@@ -39,7 +39,7 @@ func (p *VirtuosoProvider) Schema(_ context.Context, _ provider.SchemaRequest, r
 		Description: "Terraform provider for managing virtuOSo VMs, SSH keys, and access control.",
 		Attributes: map[string]schema.Attribute{
 			"endpoint": schema.StringAttribute{
-				Description: "virtuOSo server URL (e.g. https://192.168.33.99). Can also be set with VIRTUOSO_ENDPOINT.",
+				Description: "virtuOSo server URL (e.g. https://your-server). Can also be set with VIRTUOSO_ENDPOINT.",
 				Optional:    true,
 			},
 			"api_key": schema.StringAttribute{
@@ -95,6 +95,8 @@ func (p *VirtuosoProvider) Resources(_ context.Context) []func() resource.Resour
 		NewVMResource,
 		NewSSHKeyResource,
 		NewVMAccessResource,
+		NewK8sClusterResource,
+		NewDockerInstanceResource,
 	}
 }
 

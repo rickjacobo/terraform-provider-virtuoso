@@ -62,6 +62,7 @@ type LaunchRequest struct {
 	VNC        bool   `json:"vnc,omitempty"`
 	Desktop    bool   `json:"desktop,omitempty"`
 	UserScript string `json:"user_script,omitempty"`
+	PostTailscaleScript string `json:"post_tailscale_script,omitempty"`
 	ISO        string `json:"iso,omitempty"`
 	Bridged    bool   `json:"bridged,omitempty"`
 }

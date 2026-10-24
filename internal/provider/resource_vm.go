@@ -36,6 +36,7 @@ type VMResourceModel struct {
 	VNC       types.Bool    `tfsdk:"vnc"`
 	Desktop   types.Bool    `tfsdk:"desktop"`
 	UserScript types.String `tfsdk:"user_script"`
+	PostTailscaleScript types.String `tfsdk:"post_tailscale_script"`
 	ISO        types.String `tfsdk:"iso"`
 	Bridged    types.Bool   `tfsdk:"bridged"`
 	Autostart  types.Bool   `tfsdk:"autostart"`
@@ -132,6 +133,13 @@ func (r *VMResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *r
 			},
 			"user_script": schema.StringAttribute{
 				Description: "Cloud-init user script to run on first boot.",
+				Optional:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"post_tailscale_script": schema.StringAttribute{
+				Description: "Bash script that runs once after Tailscale connects. It sees TS_IP and TS_DNSNAME, survives a reboot during first boot, and is retried at the next boot if it fails. Requires a virtuOSo server that supports post_tailscale_script.",
 				Optional:    true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
@@ -275,6 +283,9 @@ func (r *VMResource) Create(ctx context.Context, req resource.CreateRequest, res
 	}
 	if !plan.UserScript.IsNull() {
 		launchReq.UserScript = plan.UserScript.ValueString()
+	}
+	if !plan.PostTailscaleScript.IsNull() {
+		launchReq.PostTailscaleScript = plan.PostTailscaleScript.ValueString()
 	}
 	if !plan.ISO.IsNull() {
 		launchReq.ISO = plan.ISO.ValueString()
@@ -580,6 +591,7 @@ func (r *VMResource) ImportState(ctx context.Context, req resource.ImportStateRe
 	state.VNC = types.BoolNull()
 	state.Desktop = types.BoolNull()
 	state.UserScript = types.StringNull()
+	state.PostTailscaleScript = types.StringNull()
 	state.ISO = types.StringNull()
 	r.mapVMToState(vm, &state)
 
