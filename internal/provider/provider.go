@@ -97,6 +97,9 @@ func (p *VirtuosoProvider) Resources(_ context.Context) []func() resource.Resour
 		NewVMAccessResource,
 		NewK8sClusterResource,
 		NewDockerInstanceResource,
+		NewVMScheduleResource,
+		NewRestorePolicyResource,
+		NewSnapshotResource,
 	}
 }
 

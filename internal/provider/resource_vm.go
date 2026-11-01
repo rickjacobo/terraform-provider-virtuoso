@@ -41,6 +41,7 @@ type VMResourceModel struct {
 	Bridged    types.Bool   `tfsdk:"bridged"`
 	Autostart  types.Bool   `tfsdk:"autostart"`
 	Protected  types.Bool   `tfsdk:"protected"`
+	Notes      types.String `tfsdk:"notes"`
 	Started    types.Bool   `tfsdk:"started"`
 	// Computed
 	IP        types.String  `tfsdk:"ip"`
@@ -169,6 +170,14 @@ func (r *VMResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *r
 				Optional:    true,
 				Computed:    true,
 				Default:     booldefault.StaticBool(false),
+			},
+			"notes": schema.StringAttribute{
+				Description: "Free text (Markdown) notes for the VM, up to 64 KB. When omitted, notes already on the VM are kept. Set to an empty string to clear them.",
+				Optional:    true,
+				Computed:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"started": schema.BoolAttribute{
 				Description: "Whether the VM should be running.",
@@ -354,6 +363,14 @@ func (r *VMResource) Create(ctx context.Context, req resource.CreateRequest, res
 		}
 	}
 
+	// Handle notes
+	if !plan.Notes.IsNull() && !plan.Notes.IsUnknown() && plan.Notes.ValueString() != "" {
+		if err := r.client.SetNotes(launchReq.Name, plan.Notes.ValueString()); err != nil {
+			resp.Diagnostics.AddError("Error setting notes", err.Error())
+			return
+		}
+	}
+
 	// Final read to populate all computed fields
 	vm, err = r.client.GetVM(launchReq.Name)
 	if err != nil {
@@ -410,6 +427,15 @@ func (r *VMResource) Update(ctx context.Context, req resource.UpdateRequest, res
 		tflog.Info(ctx, "Updating protection", map[string]interface{}{"name": name, "protected": plan.Protected.ValueBool()})
 		if err := r.client.SetProtected(name, plan.Protected.ValueBool()); err != nil {
 			resp.Diagnostics.AddError("Error setting protection", err.Error())
+			return
+		}
+	}
+
+	// Handle notes change
+	if !plan.Notes.IsNull() && !plan.Notes.IsUnknown() && plan.Notes.ValueString() != state.Notes.ValueString() {
+		tflog.Info(ctx, "Updating notes", map[string]interface{}{"name": name})
+		if err := r.client.SetNotes(name, plan.Notes.ValueString()); err != nil {
+			resp.Diagnostics.AddError("Error setting notes", err.Error())
 			return
 		}
 	}
@@ -615,6 +641,9 @@ func (r *VMResource) mapVMToState(vm *VMResponse, state *VMResourceModel) {
 
 	// Protected from API
 	state.Protected = types.BoolValue(vm.Protected)
+
+	// Notes from API
+	state.Notes = types.StringValue(vm.Notes)
 
 	// Derive started from state
 	state.Started = types.BoolValue(vm.State == "running")

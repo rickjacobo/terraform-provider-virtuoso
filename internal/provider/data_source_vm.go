@@ -27,6 +27,7 @@ type VMDataSourceModel struct {
 	CloudInit types.String  `tfsdk:"cloud_init"`
 	Network   types.String  `tfsdk:"network"`
 	Password  types.String  `tfsdk:"password"`
+	Notes     types.String  `tfsdk:"notes"`
 	OSID      types.String  `tfsdk:"os_id"`
 }
 
@@ -55,6 +56,7 @@ func (d *VMDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, res
 			"network":     schema.StringAttribute{Description: "Network name.", Computed: true},
 			"password":    schema.StringAttribute{Description: "VM password.", Computed: true, Sensitive: true},
 			"os_id":       schema.StringAttribute{Description: "OS identifier.", Computed: true},
+			"notes":       schema.StringAttribute{Description: "Free text notes for the VM.", Computed: true},
 		},
 	}
 }
@@ -98,6 +100,7 @@ func (d *VMDataSource) Read(ctx context.Context, req datasource.ReadRequest, res
 	config.DiskUsedGB = types.Float64Value(vm.DiskUsedGB)
 	config.CloudInit = types.StringValue(vm.CloudInit)
 	config.Network = types.StringValue(vm.Network)
+	config.Notes = types.StringValue(vm.Notes)
 	config.Password = types.StringValue(vm.Password)
 	config.OSID = types.StringValue(vm.OSID)
 

@@ -47,6 +47,7 @@ type VMResponse struct {
 	CloudInit     string  `json:"cloud_init"`
 	Network       string  `json:"network"`
 	Protected     bool    `json:"protected"`
+	Notes         string  `json:"notes"`
 	Password      string  `json:"password,omitempty"`
 	OSID          string  `json:"os_id,omitempty"`
 	StatusMessage string  `json:"status_message,omitempty"`
@@ -302,6 +303,20 @@ func (c *VirtuosoClient) SetAutostart(name string, enabled bool) error {
 func (c *VirtuosoClient) SetProtected(name string, protected bool) error {
 	body := map[string]bool{"protected": protected}
 	resp, err := c.doRequest("PUT", "/api/v1/vms/"+name+"/protected", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return c.parseError(resp)
+	}
+	return nil
+}
+
+// SetNotes replaces a VM's notes. An empty string clears them.
+func (c *VirtuosoClient) SetNotes(name, notes string) error {
+	resp, err := c.doRequest("PUT", "/api/v1/vms/"+name+"/notes", map[string]string{"notes": notes})
 	if err != nil {
 		return err
 	}
