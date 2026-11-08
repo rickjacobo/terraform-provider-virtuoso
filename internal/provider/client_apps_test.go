@@ -166,7 +166,7 @@ func TestMapping(t *testing.T) {
 // Every resource schema must be valid for the framework, and the resources must
 // be registered with the provider.
 func TestSchemasAreValid(t *testing.T) {
-	for _, newRes := range []func() resource.Resource{NewK8sClusterResource, NewDockerInstanceResource, NewVMResource} {
+	for _, newRes := range []func() resource.Resource{NewK8sClusterResource, NewDockerInstanceResource, NewVMResource, NewAWSInstanceResource} {
 		r := newRes()
 		resp := &resource.SchemaResponse{}
 		r.Schema(context.Background(), resource.SchemaRequest{}, resp)
@@ -180,7 +180,7 @@ func TestSchemasAreValid(t *testing.T) {
 		f().Metadata(context.Background(), resource.MetadataRequest{ProviderTypeName: "virtuoso"}, resp)
 		names[resp.TypeName] = true
 	}
-	for _, want := range []string{"virtuoso_vm", "virtuoso_k8s_cluster", "virtuoso_docker_instance"} {
+	for _, want := range []string{"virtuoso_vm", "virtuoso_k8s_cluster", "virtuoso_docker_instance", "virtuoso_aws_instance"} {
 		if !names[want] {
 			t.Errorf("resource %s is not registered", want)
 		}
