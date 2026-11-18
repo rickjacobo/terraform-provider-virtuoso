@@ -29,6 +29,7 @@ type VMDataSourceModel struct {
 	Password  types.String  `tfsdk:"password"`
 	Notes     types.String  `tfsdk:"notes"`
 	OSID      types.String  `tfsdk:"os_id"`
+	Tags      types.Map     `tfsdk:"tags"`
 }
 
 func NewVMDataSource() datasource.DataSource {
@@ -57,6 +58,7 @@ func (d *VMDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, res
 			"password":    schema.StringAttribute{Description: "VM password.", Computed: true, Sensitive: true},
 			"os_id":       schema.StringAttribute{Description: "OS identifier.", Computed: true},
 			"notes":       schema.StringAttribute{Description: "Free text notes for the VM.", Computed: true},
+			"tags":        schema.MapAttribute{Description: "Labels on the VM, as key to value. Empty when it has none.", ElementType: types.StringType, Computed: true},
 		},
 	}
 }
@@ -103,6 +105,7 @@ func (d *VMDataSource) Read(ctx context.Context, req datasource.ReadRequest, res
 	config.Notes = types.StringValue(vm.Notes)
 	config.Password = types.StringValue(vm.Password)
 	config.OSID = types.StringValue(vm.OSID)
+	config.Tags = tagsToMap(vm.Tags)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &config)...)
 }

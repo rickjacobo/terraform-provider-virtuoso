@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -48,6 +49,8 @@ type VMResponse struct {
 	Network       string  `json:"network"`
 	Protected     bool    `json:"protected"`
 	Notes         string  `json:"notes"`
+	// Tags are the VM's labels. The server leaves the field out when a VM has none.
+	Tags          map[string]string `json:"tags,omitempty"`
 	Password      string  `json:"password,omitempty"`
 	OSID          string  `json:"os_id,omitempty"`
 	StatusMessage string  `json:"status_message,omitempty"`
@@ -66,6 +69,8 @@ type LaunchRequest struct {
 	PostTailscaleScript string `json:"post_tailscale_script,omitempty"`
 	ISO        string `json:"iso,omitempty"`
 	Bridged    bool   `json:"bridged,omitempty"`
+	// Tags are set once the VM is launched. Needs a server that supports tags.
+	Tags map[string]string `json:"tags,omitempty"`
 }
 
 type LaunchResponse struct {
@@ -326,6 +331,57 @@ func (c *VirtuosoClient) SetNotes(name, notes string) error {
 		return c.parseError(resp)
 	}
 	return nil
+}
+
+// SetTags adds tags to a VM, or changes the value of keys it already has. Other tags stay. The server refuses
+// the whole set if any tag is bad.
+func (c *VirtuosoClient) SetTags(name string, tags map[string]string) error {
+	resp, err := c.doRequest("POST", "/api/v1/vms/"+url.PathEscape(name)+"/tags", map[string]any{"tags": tags})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return c.parseError(resp)
+	}
+	return nil
+}
+
+// RemoveTag takes one tag off a VM. A tag that is already gone is not an error.
+func (c *VirtuosoClient) RemoveTag(name, key string) error {
+	resp, err := c.doRequest("DELETE", "/api/v1/vms/"+url.PathEscape(name)+"/tags/"+url.PathEscape(key), nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
+		return c.parseError(resp)
+	}
+	return nil
+}
+
+// ReplaceTags makes a VM's tags exactly want. Tags that are not wanted go first, so a full VM can swap tags
+// without hitting the limit.
+func (c *VirtuosoClient) ReplaceTags(name string, have, want map[string]string) error {
+	for k := range have {
+		if _, ok := want[k]; !ok {
+			if err := c.RemoveTag(name, k); err != nil {
+				return err
+			}
+		}
+	}
+	change := map[string]string{}
+	for k, v := range want {
+		if hv, ok := have[k]; !ok || hv != v {
+			change[k] = v
+		}
+	}
+	if len(change) == 0 {
+		return nil
+	}
+	return c.SetTags(name, change)
 }
 
 func (c *VirtuosoClient) WaitForVM(name string, timeout time.Duration) (*VMResponse, error) {

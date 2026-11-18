@@ -30,6 +30,12 @@ resource "virtuoso_vm" "web" {
   ssh_key   = virtuoso_ssh_key.deploy.public_key
   started   = true
   autostart = true
+
+  # Labels for finding VMs. When set, the VM has exactly these tags.
+  tags = {
+    env   = "test"
+    owner = "ops"
+  }
 }
 
 output "web_ip" {

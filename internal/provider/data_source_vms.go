@@ -30,6 +30,7 @@ type VMsEntryModel struct {
 	DiskUsedGB types.Float64 `tfsdk:"disk_used_gb"`
 	CloudInit types.String  `tfsdk:"cloud_init"`
 	Network   types.String  `tfsdk:"network"`
+	Tags      types.Map     `tfsdk:"tags"`
 }
 
 func NewVMsDataSource() datasource.DataSource {
@@ -53,6 +54,7 @@ func (d *VMsDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, re
 		"disk_used_gb": schema.Float64Attribute{Description: "Disk used GB.", Computed: true},
 		"cloud_init":  schema.StringAttribute{Description: "Cloud-init status.", Computed: true},
 		"network":     schema.StringAttribute{Description: "Network name.", Computed: true},
+		"tags":        schema.MapAttribute{Description: "Labels on the VM, as key to value. Empty when it has none.", ElementType: types.StringType, Computed: true},
 	}
 
 	resp.Schema = schema.Schema{
@@ -102,6 +104,7 @@ func (d *VMsDataSource) Read(ctx context.Context, _ datasource.ReadRequest, resp
 			DiskUsedGB: types.Float64Value(vm.DiskUsedGB),
 			CloudInit: types.StringValue(vm.CloudInit),
 			Network:   types.StringValue(vm.Network),
+			Tags:      tagsToMap(vm.Tags),
 		})
 	}
 

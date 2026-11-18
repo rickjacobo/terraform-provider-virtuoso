@@ -196,7 +196,7 @@ func baseModel(notes types.String) VMResourceModel {
 		VNC: types.BoolNull(), Desktop: types.BoolNull(), UserScript: types.StringNull(),
 		PostTailscaleScript: types.StringNull(), ISO: types.StringNull(), Bridged: types.BoolValue(false),
 		Autostart: types.BoolValue(false), Protected: types.BoolValue(false), Started: types.BoolValue(true),
-		Notes: notes,
+		Notes: notes, Tags: types.MapNull(types.StringType),
 		IP:    types.StringValue("192.0.2.10"), State: types.StringValue("running"), VCPUs: types.Int64Value(2),
 		MemoryMB: types.Int64Value(2048), DiskCapGB: types.Float64Value(20), DiskUsedGB: types.Float64Value(1),
 		HasVNC: types.BoolValue(false), CloudInit: types.StringValue("done"), Network: types.StringValue("default"),

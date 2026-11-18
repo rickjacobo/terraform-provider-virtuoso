@@ -5,7 +5,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
@@ -42,6 +45,7 @@ type VMResourceModel struct {
 	Autostart  types.Bool   `tfsdk:"autostart"`
 	Protected  types.Bool   `tfsdk:"protected"`
 	Notes      types.String `tfsdk:"notes"`
+	Tags       types.Map    `tfsdk:"tags"`
 	Started    types.Bool   `tfsdk:"started"`
 	// Computed
 	IP        types.String  `tfsdk:"ip"`
@@ -179,6 +183,15 @@ func (r *VMResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *r
 					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
+			"tags": schema.MapAttribute{
+				Description: "Labels for the VM, as key to value (an empty value is fine). Up to 20 tags. A key uses letters, digits and - _ . : and starts with a letter or digit, up to 40 characters; a value is up to 100. Keys that start with virtuoso: are reserved. When set, the VM has exactly these tags and any other tag on it is removed. When omitted, tags already on the VM are kept. Needs a virtuOSo server that supports tags.",
+				ElementType: types.StringType,
+				Optional:    true,
+				Computed:    true,
+				PlanModifiers: []planmodifier.Map{
+					mapplanmodifier.UseStateForUnknown(),
+				},
+			},
 			"started": schema.BoolAttribute{
 				Description: "Whether the VM should be running.",
 				Optional:    true,
@@ -301,6 +314,15 @@ func (r *VMResource) Create(ctx context.Context, req resource.CreateRequest, res
 	}
 	if !plan.Bridged.IsNull() {
 		launchReq.Bridged = plan.Bridged.ValueBool()
+	}
+
+	wantTags, tagDiags := planTags(ctx, plan.Tags)
+	resp.Diagnostics.Append(tagDiags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if len(wantTags) > 0 {
+		launchReq.Tags = wantTags
 	}
 
 	tflog.Info(ctx, "Launching VM", map[string]interface{}{"name": launchReq.Name})
@@ -436,6 +458,24 @@ func (r *VMResource) Update(ctx context.Context, req resource.UpdateRequest, res
 		tflog.Info(ctx, "Updating notes", map[string]interface{}{"name": name})
 		if err := r.client.SetNotes(name, plan.Notes.ValueString()); err != nil {
 			resp.Diagnostics.AddError("Error setting notes", err.Error())
+			return
+		}
+	}
+
+	// Handle tags change. The server's own list is the starting point, so a tag added outside Terraform
+	// is removed when tags are set here.
+	if want, tagDiags := planTags(ctx, plan.Tags); tagDiags.HasError() {
+		resp.Diagnostics.Append(tagDiags...)
+		return
+	} else if !plan.Tags.IsNull() && !plan.Tags.IsUnknown() && !plan.Tags.Equal(state.Tags) {
+		tflog.Info(ctx, "Updating tags", map[string]interface{}{"name": name})
+		current, err := r.client.GetVM(name)
+		if err != nil || current == nil {
+			resp.Diagnostics.AddError("Error reading VM tags", errOrNotFound(err, name))
+			return
+		}
+		if err := r.client.ReplaceTags(name, current.Tags, want); err != nil {
+			resp.Diagnostics.AddError("Error setting tags", err.Error())
 			return
 		}
 	}
@@ -619,6 +659,7 @@ func (r *VMResource) ImportState(ctx context.Context, req resource.ImportStateRe
 	state.UserScript = types.StringNull()
 	state.PostTailscaleScript = types.StringNull()
 	state.ISO = types.StringNull()
+	state.Tags = types.MapNull(types.StringType)
 	r.mapVMToState(vm, &state)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
@@ -645,6 +686,9 @@ func (r *VMResource) mapVMToState(vm *VMResponse, state *VMResourceModel) {
 	// Notes from API
 	state.Notes = types.StringValue(vm.Notes)
 
+	// Tags from API. A VM with none has an empty map, not null, so an omitted attribute stays quiet.
+	state.Tags = tagsToMap(vm.Tags)
+
 	// Derive started from state
 	state.Started = types.BoolValue(vm.State == "running")
 
@@ -660,4 +704,30 @@ func (r *VMResource) mapVMToState(vm *VMResponse, state *VMResourceModel) {
 	if state.DiskGB.IsNull() || state.DiskGB.IsUnknown() {
 		state.DiskGB = types.Int64Value(int64(vm.DiskCapGB))
 	}
+}
+
+// tagsToMap turns a VM's tags into a Terraform map. No tags is an empty map.
+func tagsToMap(tags map[string]string) types.Map {
+	elems := make(map[string]attr.Value, len(tags))
+	for k, v := range tags {
+		elems[k] = types.StringValue(v)
+	}
+	return types.MapValueMust(types.StringType, elems)
+}
+
+// planTags reads the tags a plan asks for. A null or unknown map is no request, and gives no tags.
+func planTags(ctx context.Context, m types.Map) (map[string]string, diag.Diagnostics) {
+	if m.IsNull() || m.IsUnknown() {
+		return nil, nil
+	}
+	out := map[string]string{}
+	d := m.ElementsAs(ctx, &out, false)
+	return out, d
+}
+
+func errOrNotFound(err error, name string) string {
+	if err != nil {
+		return err.Error()
+	}
+	return "No VM named " + name
 }
