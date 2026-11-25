@@ -43,6 +43,7 @@ type K8sClusterResourceModel struct {
 	ArgoCD      types.Bool   `tfsdk:"argocd"`
 	Headlamp    types.Bool   `tfsdk:"headlamp"`
 	K9s         types.Bool   `tfsdk:"k9s"`
+	Tailscale   types.Bool   `tfsdk:"tailscale"`
 	WorkerCount types.Int64  `tfsdk:"worker_count"`
 	// Computed
 	VMName         types.String `tfsdk:"vm_name"`
@@ -105,6 +106,7 @@ func (r *K8sClusterResource) Schema(_ context.Context, _ resource.SchemaRequest,
 					boolplanmodifier.RequiresReplace(),
 				},
 			},
+			"tailscale": tailscaleAttribute("cluster", "With false the workers stay off the tailnet too, including workers added later by changing worker_count."),
 			"argocd": schema.BoolAttribute{
 				Description: "Install ArgoCD. Can be turned on later; it cannot be removed without recreating the cluster.",
 				Optional:    true,
@@ -270,6 +272,7 @@ func (r *K8sClusterResource) Create(ctx context.Context, req resource.CreateRequ
 		Headlamp:    plan.Headlamp.ValueBool(),
 		K9s:         plan.K9s.ValueBool(),
 		WorkerCount: plan.WorkerCount.ValueInt64(),
+		Tailscale:   tailscaleOptOut(plan.Tailscale),
 	}
 	if !plan.DiskGB.IsNull() && !plan.DiskGB.IsUnknown() {
 		create.DiskGB = plan.DiskGB.ValueInt64()

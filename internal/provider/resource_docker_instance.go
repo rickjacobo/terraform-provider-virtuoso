@@ -28,11 +28,12 @@ type DockerInstanceResource struct {
 }
 
 type DockerInstanceResourceModel struct {
-	ID      types.String `tfsdk:"id"`
-	Name    types.String `tfsdk:"name"`
-	Size    types.String `tfsdk:"size"`
-	DiskGB  types.Int64  `tfsdk:"disk_gb"`
-	Bridged types.Bool   `tfsdk:"bridged"`
+	ID        types.String `tfsdk:"id"`
+	Name      types.String `tfsdk:"name"`
+	Size      types.String `tfsdk:"size"`
+	DiskGB    types.Int64  `tfsdk:"disk_gb"`
+	Bridged   types.Bool   `tfsdk:"bridged"`
+	Tailscale types.Bool   `tfsdk:"tailscale"`
 	// Computed
 	VMName      types.String `tfsdk:"vm_name"`
 	Status      types.String `tfsdk:"status"`
@@ -79,6 +80,7 @@ func (r *DockerInstanceResource) Schema(_ context.Context, _ resource.SchemaRequ
 					int64planmodifier.UseStateForUnknown(),
 				},
 			},
+			"tailscale": tailscaleAttribute("instance"),
 			"bridged": schema.BoolAttribute{
 				Description:   "Use bridged networking instead of NAT (on-prem only).",
 				Optional:      true,
@@ -138,9 +140,10 @@ func (r *DockerInstanceResource) Create(ctx context.Context, req resource.Create
 		return
 	}
 	create := DockerCreateRequest{
-		Name:    plan.Name.ValueString(),
-		Size:    plan.Size.ValueString(),
-		Bridged: plan.Bridged.ValueBool(),
+		Name:      plan.Name.ValueString(),
+		Size:      plan.Size.ValueString(),
+		Bridged:   plan.Bridged.ValueBool(),
+		Tailscale: tailscaleOptOut(plan.Tailscale),
 	}
 	if !plan.DiskGB.IsNull() && !plan.DiskGB.IsUnknown() {
 		create.DiskGB = plan.DiskGB.ValueInt64()

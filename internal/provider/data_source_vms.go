@@ -31,6 +31,8 @@ type VMsEntryModel struct {
 	CloudInit types.String  `tfsdk:"cloud_init"`
 	Network   types.String  `tfsdk:"network"`
 	Tags      types.Map     `tfsdk:"tags"`
+	CPUPercent   types.Float64 `tfsdk:"cpu_percent"`
+	MemoryUsedMB types.Int64   `tfsdk:"memory_used_mb"`
 }
 
 func NewVMsDataSource() datasource.DataSource {
@@ -54,6 +56,8 @@ func (d *VMsDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, re
 		"disk_used_gb": schema.Float64Attribute{Description: "Disk used GB.", Computed: true},
 		"cloud_init":  schema.StringAttribute{Description: "Cloud-init status.", Computed: true},
 		"network":     schema.StringAttribute{Description: "Network name.", Computed: true},
+		"cpu_percent":    schema.Float64Attribute{Description: "Share of the VM's own vCPUs it is using now, 0 to 100, measured by the server it runs on. Null when the VM is not running or has not been measured yet.", Computed: true},
+		"memory_used_mb": schema.Int64Attribute{Description: "Memory in MB the server holds for the VM now. Null when the VM is not running or has not been measured yet.", Computed: true},
 		"tags":        schema.MapAttribute{Description: "Labels on the VM, as key to value. Empty when it has none.", ElementType: types.StringType, Computed: true},
 	}
 
@@ -105,6 +109,8 @@ func (d *VMsDataSource) Read(ctx context.Context, _ datasource.ReadRequest, resp
 			CloudInit: types.StringValue(vm.CloudInit),
 			Network:   types.StringValue(vm.Network),
 			Tags:      tagsToMap(vm.Tags),
+			CPUPercent:   usageFloat(vm.CPUPercent),
+			MemoryUsedMB: usageInt(vm.MemoryUsedMB),
 		})
 	}
 
@@ -114,4 +120,19 @@ func (d *VMsDataSource) Read(ctx context.Context, _ datasource.ReadRequest, resp
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
+}
+
+// usageFloat and usageInt turn a figure the server may have left out into null.
+func usageFloat(f *float64) types.Float64 {
+	if f == nil {
+		return types.Float64Null()
+	}
+	return types.Float64Value(*f)
+}
+
+func usageInt(i *int64) types.Int64 {
+	if i == nil {
+		return types.Int64Null()
+	}
+	return types.Int64Value(*i)
 }

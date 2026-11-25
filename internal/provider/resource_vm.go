@@ -2,18 +2,20 @@ package provider
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -21,8 +23,9 @@ import (
 )
 
 var (
-	_ resource.Resource                = &VMResource{}
-	_ resource.ResourceWithImportState = &VMResource{}
+	_ resource.Resource                   = &VMResource{}
+	_ resource.ResourceWithImportState    = &VMResource{}
+	_ resource.ResourceWithValidateConfig = &VMResource{}
 )
 
 type VMResource struct {
@@ -30,34 +33,39 @@ type VMResource struct {
 }
 
 type VMResourceModel struct {
-	Name      types.String  `tfsdk:"name"`
-	Size      types.String  `tfsdk:"size"`
-	OS        types.String  `tfsdk:"os"`
-	SSHKey    types.String  `tfsdk:"ssh_key"`
-	DiskGB    types.Int64   `tfsdk:"disk_gb"`
-	Password  types.String  `tfsdk:"password"`
-	VNC       types.Bool    `tfsdk:"vnc"`
-	Desktop   types.Bool    `tfsdk:"desktop"`
-	UserScript types.String `tfsdk:"user_script"`
+	Name                types.String `tfsdk:"name"`
+	Size                types.String `tfsdk:"size"`
+	OS                  types.String `tfsdk:"os"`
+	SSHKey              types.String `tfsdk:"ssh_key"`
+	DiskGB              types.Int64  `tfsdk:"disk_gb"`
+	Password            types.String `tfsdk:"password"`
+	VNC                 types.Bool   `tfsdk:"vnc"`
+	Desktop             types.Bool   `tfsdk:"desktop"`
+	UserScript          types.String `tfsdk:"user_script"`
 	PostTailscaleScript types.String `tfsdk:"post_tailscale_script"`
-	ISO        types.String `tfsdk:"iso"`
-	Bridged    types.Bool   `tfsdk:"bridged"`
-	Autostart  types.Bool   `tfsdk:"autostart"`
-	Protected  types.Bool   `tfsdk:"protected"`
-	Notes      types.String `tfsdk:"notes"`
-	Tags       types.Map    `tfsdk:"tags"`
-	Started    types.Bool   `tfsdk:"started"`
+	Tailscale           types.Bool   `tfsdk:"tailscale"`
+	ISO                 types.String `tfsdk:"iso"`
+	Bridged             types.Bool   `tfsdk:"bridged"`
+	Autostart           types.Bool   `tfsdk:"autostart"`
+	Protected           types.Bool   `tfsdk:"protected"`
+	Notes               types.String `tfsdk:"notes"`
+	Tags                types.Map    `tfsdk:"tags"`
+	Node                types.String `tfsdk:"node"`
+	VPC                 types.String `tfsdk:"vpc"`
+	SecurityGroups      types.Set    `tfsdk:"security_groups"`
+	VPCIP               types.String `tfsdk:"vpc_ip"`
+	Started             types.Bool   `tfsdk:"started"`
 	// Computed
-	IP        types.String  `tfsdk:"ip"`
-	State     types.String  `tfsdk:"state"`
-	VCPUs     types.Int64   `tfsdk:"vcpus"`
-	MemoryMB  types.Int64   `tfsdk:"memory_mb"`
-	DiskCapGB types.Float64 `tfsdk:"disk_cap_gb"`
+	IP         types.String  `tfsdk:"ip"`
+	State      types.String  `tfsdk:"state"`
+	VCPUs      types.Int64   `tfsdk:"vcpus"`
+	MemoryMB   types.Int64   `tfsdk:"memory_mb"`
+	DiskCapGB  types.Float64 `tfsdk:"disk_cap_gb"`
 	DiskUsedGB types.Float64 `tfsdk:"disk_used_gb"`
-	HasVNC    types.Bool    `tfsdk:"has_vnc"`
-	CloudInit types.String  `tfsdk:"cloud_init"`
-	Network   types.String  `tfsdk:"network"`
-	OSID      types.String  `tfsdk:"os_id"`
+	HasVNC     types.Bool    `tfsdk:"has_vnc"`
+	CloudInit  types.String  `tfsdk:"cloud_init"`
+	Network    types.String  `tfsdk:"network"`
+	OSID       types.String  `tfsdk:"os_id"`
 }
 
 func NewVMResource() resource.Resource {
@@ -144,12 +152,13 @@ func (r *VMResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *r
 				},
 			},
 			"post_tailscale_script": schema.StringAttribute{
-				Description: "Bash script that runs once after Tailscale connects. It sees TS_IP and TS_DNSNAME, survives a reboot during first boot, and is retried at the next boot if it fails. Requires a virtuOSo server that supports post_tailscale_script.",
+				Description: "Bash script that runs once after Tailscale connects, or at first boot once the network is up when the VM is not on Tailscale (tailscale = false or no server key). It sees TS_IP and TS_DNSNAME, survives a reboot during first boot, and is retried at the next boot if it fails. Requires a virtuOSo server that supports post_tailscale_script.",
 				Optional:    true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
 			},
+			"tailscale": tailscaleAttribute("VM"),
 			"iso": schema.StringAttribute{
 				Description: "Path to ISO file on the server to boot from. When set, the VM boots from the ISO instead of a cloud image (os is ignored).",
 				Optional:    true,
@@ -190,6 +199,36 @@ func (r *VMResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *r
 				Computed:    true,
 				PlanModifiers: []planmodifier.Map{
 					mapplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"node": schema.StringAttribute{
+				Description: "Name of a fleet node to run the VM on, for a provider pointed at the fleet hub. The hub starts the VM on that node, reads it from the fleet list and deletes it (stopping it first if it is running). Works with vpc, so a VPC made on the hub can have VMs on any node. A VM on a node cannot use iso, and disk_gb and bridged cannot change in place (replace the VM). Everything else works as for any VM: tags, notes, protected, autostart, started and security_groups. Changing node replaces the VM. Needs a hub with fleet support.",
+				Optional:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"vpc": schema.StringAttribute{
+				Description: "Name of a VPC to launch the VM into. The VM then has one network card, on the VPC, and gets a private address from it (see vpc_ip). A VM joins a VPC only when it is launched, so changing this replaces the VM. Cannot be combined with bridged. Needs a virtuOSo server that supports VPCs.",
+				Optional:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"security_groups": schema.SetAttribute{
+				Description: "Names of the VPC's security groups the VM's card is in, up to 5. Only with vpc. When left out, the VM is in the group default. Changing the set updates the VM in place.",
+				ElementType: types.StringType,
+				Optional:    true,
+				Computed:    true,
+				PlanModifiers: []planmodifier.Set{
+					setplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"vpc_ip": schema.StringAttribute{
+				Description: "The VM's private address in its VPC.",
+				Computed:    true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
 			"started": schema.BoolAttribute{
@@ -279,6 +318,7 @@ func (r *VMResource) Create(ctx context.Context, req resource.CreateRequest, res
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	r = r.withNode(plan.Node)
 
 	launchReq := LaunchRequest{
 		Name: plan.Name.ValueString(),
@@ -309,6 +349,7 @@ func (r *VMResource) Create(ctx context.Context, req resource.CreateRequest, res
 	if !plan.PostTailscaleScript.IsNull() {
 		launchReq.PostTailscaleScript = plan.PostTailscaleScript.ValueString()
 	}
+	launchReq.Tailscale = tailscaleOptOut(plan.Tailscale)
 	if !plan.ISO.IsNull() {
 		launchReq.ISO = plan.ISO.ValueString()
 	}
@@ -324,10 +365,31 @@ func (r *VMResource) Create(ctx context.Context, req resource.CreateRequest, res
 	if len(wantTags) > 0 {
 		launchReq.Tags = wantTags
 	}
+	if !plan.VPC.IsNull() && !plan.VPC.IsUnknown() {
+		launchReq.VPC = plan.VPC.ValueString()
+		groups, gd := planGroups(ctx, plan.SecurityGroups)
+		resp.Diagnostics.Append(gd...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		launchReq.SecurityGroups = groups
+	}
 
-	tflog.Info(ctx, "Launching VM", map[string]interface{}{"name": launchReq.Name})
+	tflog.Info(ctx, "Launching VM", map[string]interface{}{"name": launchReq.Name, "node": plan.Node.ValueString()})
 
-	launchResp, err := r.client.LaunchVM(launchReq)
+	var launchResp *LaunchResponse
+	err := retryVPCNotFound(6, vpcRetryWait, func() error {
+		var lerr error
+		if hasNode(plan.Node) {
+			// Through the hub, onto the chosen node.
+			var pw string
+			pw, lerr = r.client.FleetLaunch(FleetLaunchRequest{LaunchRequest: launchReq, Node: plan.Node.ValueString()})
+			launchResp = &LaunchResponse{Name: launchReq.Name, Password: pw}
+			return lerr
+		}
+		launchResp, lerr = r.client.LaunchVM(launchReq)
+		return lerr
+	})
 	if err != nil {
 		resp.Diagnostics.AddError("Error launching VM", err.Error())
 		return
@@ -401,6 +463,10 @@ func (r *VMResource) Create(ctx context.Context, req resource.CreateRequest, res
 	}
 
 	r.mapVMToState(vm, &plan)
+	resp.Diagnostics.Append(r.syncVPC(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -411,10 +477,24 @@ func (r *VMResource) Read(ctx context.Context, req resource.ReadRequest, resp *r
 		return
 	}
 
+	r = r.withNode(state.Node)
 	vm, err := r.client.GetVM(state.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Error reading VM", err.Error())
 		return
+	}
+	if vm == nil && hasNode(state.Node) {
+		// The node no longer has it. A Fleet move made outside Terraform leaves it on another node, and
+		// dropping it from the state would make the next plan create a second VM of the same name.
+		if moved := r.movedTo(state); moved != "" {
+			r2 := r.withNode(types.StringValue(moved))
+			if v2, err2 := r2.client.GetVM(state.Name.ValueString()); err2 == nil && v2 != nil {
+				resp.Diagnostics.AddWarning("VM "+state.Name.ValueString()+" is now on node "+moved,
+					"It was on "+state.Node.ValueString()+" and was moved outside Terraform. The state now follows it. Set node = \""+moved+"\" in the configuration, or the next plan replaces the VM to put it back on "+state.Node.ValueString()+".")
+				state.Node = types.StringValue(moved)
+				r, vm = r2, v2
+			}
+		}
 	}
 	if vm == nil {
 		resp.State.RemoveResource(ctx)
@@ -422,6 +502,10 @@ func (r *VMResource) Read(ctx context.Context, req resource.ReadRequest, resp *r
 	}
 
 	r.mapVMToState(vm, &state)
+	resp.Diagnostics.Append(r.syncVPC(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -434,6 +518,15 @@ func (r *VMResource) Update(ctx context.Context, req resource.UpdateRequest, res
 	}
 
 	name := plan.Name.ValueString()
+	r = r.withNode(plan.Node)
+	if hasNode(plan.Node) {
+		// The hub forwards everything below except these two, which have no hub call.
+		if plan.Bridged.ValueBool() != state.Bridged.ValueBool() || (!plan.DiskGB.IsNull() && !plan.DiskGB.IsUnknown() && plan.DiskGB.ValueInt64() != state.DiskGB.ValueInt64()) {
+			resp.Diagnostics.AddError("Cannot change bridged or disk_gb on a VM that runs on a node",
+				"The hub cannot change the network mode or the disk size of a VM on another node. Replace the VM (terraform apply -replace) or change it on the node itself.")
+			return
+		}
+	}
 
 	// Handle autostart change
 	if plan.Autostart.ValueBool() != state.Autostart.ValueBool() {
@@ -476,6 +569,20 @@ func (r *VMResource) Update(ctx context.Context, req resource.UpdateRequest, res
 		}
 		if err := r.client.ReplaceTags(name, current.Tags, want); err != nil {
 			resp.Diagnostics.AddError("Error setting tags", err.Error())
+			return
+		}
+	}
+
+	// Handle security group change. The VM stays where it is; only the groups of its card change.
+	if !plan.VPC.IsNull() && !plan.SecurityGroups.IsNull() && !plan.SecurityGroups.IsUnknown() && !plan.SecurityGroups.Equal(state.SecurityGroups) {
+		groups, gd := planGroups(ctx, plan.SecurityGroups)
+		resp.Diagnostics.Append(gd...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		tflog.Info(ctx, "Updating security groups", map[string]interface{}{"name": name})
+		if _, err := r.client.SetVMSecurityGroups(plan.VPC.ValueString(), name, groups); err != nil {
+			resp.Diagnostics.AddError("Error setting security groups", err.Error())
 			return
 		}
 	}
@@ -611,6 +718,10 @@ func (r *VMResource) Update(ctx context.Context, req resource.UpdateRequest, res
 	}
 
 	r.mapVMToState(vm, &plan)
+	resp.Diagnostics.Append(r.syncVPC(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -622,6 +733,7 @@ func (r *VMResource) Delete(ctx context.Context, req resource.DeleteRequest, res
 	}
 
 	tflog.Info(ctx, "Deleting VM", map[string]interface{}{"name": state.Name.ValueString()})
+	r = r.withNode(state.Node)
 
 	// Auto-unprotect before destroying
 	if state.Protected.ValueBool() {
@@ -632,6 +744,13 @@ func (r *VMResource) Delete(ctx context.Context, req resource.DeleteRequest, res
 		}
 	}
 
+	if hasNode(state.Node) {
+		// The hub shuts a running VM down and deletes it.
+		if _, err := r.client.DeleteFleetVM(state.Node.ValueString(), state.Name.ValueString(), true); err != nil {
+			resp.Diagnostics.AddError("Error deleting VM on node "+state.Node.ValueString(), err.Error())
+		}
+		return
+	}
 	if err := r.client.DeleteVM(state.Name.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Error deleting VM", err.Error())
 	}
@@ -658,9 +777,17 @@ func (r *VMResource) ImportState(ctx context.Context, req resource.ImportStateRe
 	state.Desktop = types.BoolNull()
 	state.UserScript = types.StringNull()
 	state.PostTailscaleScript = types.StringNull()
+	state.Tailscale = types.BoolNull() // not known after import; the configuration value is kept without a replacement
 	state.ISO = types.StringNull()
 	state.Tags = types.MapNull(types.StringType)
+	state.VPC = types.StringNull()
+	if name, err := r.client.FindVPCOfVM(vm.Name); err != nil {
+		resp.Diagnostics.AddWarning("Could not look for the VM's VPC", err.Error())
+	} else if name != "" {
+		state.VPC = types.StringValue(name)
+	}
 	r.mapVMToState(vm, &state)
+	resp.Diagnostics.Append(r.syncVPC(ctx, &state)...)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -730,4 +857,82 @@ func errOrNotFound(err error, name string) string {
 		return err.Error()
 	}
 	return "No VM named " + name
+}
+
+// planGroups reads the security group names from the plan. Nothing when the set is left out.
+func planGroups(ctx context.Context, s types.Set) ([]string, diag.Diagnostics) {
+	if s.IsNull() || s.IsUnknown() {
+		return nil, nil
+	}
+	var out []string
+	d := s.ElementsAs(ctx, &out, false)
+	sort.Strings(out)
+	return out, d
+}
+
+// syncVPC fills vpc_ip and security_groups from the server. A VM that is not in the VPC the state names has
+// left it, so vpc is cleared and the next plan shows the difference. Without a VPC both are null.
+func (r *VMResource) syncVPC(ctx context.Context, state *VMResourceModel) diag.Diagnostics {
+	state.VPCIP = types.StringNull()
+	state.SecurityGroups = types.SetNull(types.StringType)
+	if state.VPC.IsNull() || state.VPC.IsUnknown() {
+		state.VPC = types.StringNull()
+		return nil
+	}
+	name := state.Name.ValueString()
+	v, err := r.client.GetVPC(state.VPC.ValueString())
+	if err != nil {
+		var d diag.Diagnostics
+		d.AddError("Error reading the VM's VPC", err.Error())
+		return d
+	}
+	var ip string
+	if v != nil {
+		for _, c := range v.VMs {
+			if c.VM == name {
+				ip = c.IP
+			}
+		}
+	}
+	if ip == "" {
+		state.VPC = types.StringNull()
+		return nil
+	}
+	state.VPCIP = types.StringValue(ip)
+	groups, found, err := r.client.VMSecurityGroups(state.VPC.ValueString(), name)
+	if err != nil {
+		var d diag.Diagnostics
+		d.AddError("Error reading the VM's security groups", err.Error())
+		return d
+	}
+	if !found {
+		return nil
+	}
+	set, d := types.SetValueFrom(ctx, types.StringType, groups)
+	state.SecurityGroups = set
+	return d
+}
+
+// ValidateConfig catches combinations the server would refuse, before anything is launched.
+func (r *VMResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var c VMResourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &c)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if hasNode(c.Node) && !c.ISO.IsNull() {
+		resp.Diagnostics.AddError("iso is not available with node", "An ISO boot runs only on the server that holds the file. Leave node out and use that server's own endpoint.")
+	}
+	if c.VPC.IsUnknown() {
+		return
+	}
+	if c.VPC.IsNull() && !c.SecurityGroups.IsNull() && !c.SecurityGroups.IsUnknown() {
+		resp.Diagnostics.AddError("security_groups needs vpc", "Security groups belong to a VPC. Set vpc, or leave security_groups out.")
+	}
+	if !c.VPC.IsNull() && !c.Bridged.IsNull() && !c.Bridged.IsUnknown() && c.Bridged.ValueBool() {
+		resp.Diagnostics.AddError("vpc cannot be combined with bridged", "A VM in a VPC has one network card, on the VPC.")
+	}
+	if !c.SecurityGroups.IsNull() && !c.SecurityGroups.IsUnknown() && len(c.SecurityGroups.Elements()) > 5 {
+		resp.Diagnostics.AddError("Too many security groups", "A VM's card can be in at most 5 groups.")
+	}
 }

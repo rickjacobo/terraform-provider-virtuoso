@@ -308,3 +308,30 @@ func TestVMReadPicksUpTags(t *testing.T) {
 		t.Errorf("a VM with no tags read as %v", got)
 	}
 }
+
+// The data sources carry what a running VM uses now, and a figure the server left out reads as null, not zero.
+func TestVMUsageFiguresAreOptionalReadings(t *testing.T) {
+	ctx := context.Background()
+	var one, many datasource.SchemaResponse
+	NewVMDataSource().Schema(ctx, datasource.SchemaRequest{}, &one)
+	NewVMsDataSource().Schema(ctx, datasource.SchemaRequest{}, &many)
+	for _, k := range []string{"cpu_percent", "memory_used_mb"} {
+		if a, ok := one.Schema.Attributes[k]; !ok || !a.IsComputed() || a.IsOptional() {
+			t.Errorf("virtuoso_vm must expose %s as computed", k)
+		}
+		if !strings.Contains(string(mustJSON(many.Schema.Attributes["vms"])), k) {
+			t.Errorf("virtuoso_vms must carry %s", k)
+		}
+	}
+	if !usageFloat(nil).IsNull() || !usageInt(nil).IsNull() {
+		t.Error("a missing figure must be null")
+	}
+	f, i := 12.5, int64(2048)
+	if usageFloat(&f).ValueFloat64() != 12.5 || usageInt(&i).ValueInt64() != 2048 {
+		t.Error("a figure must be passed on")
+	}
+	var vm VMResponse
+	if err := json.Unmarshal([]byte(`{"name":"a","cpu_percent":0,"memory_used_mb":0}`), &vm); err != nil || vm.CPUPercent == nil || *vm.CPUPercent != 0 {
+		t.Errorf("a measured zero is a reading, not a missing figure: %+v %v", vm, err)
+	}
+}

@@ -31,6 +31,11 @@ resource "virtuoso_vm" "web" {
   started   = true
   autostart = true
 
+  # Keep this VM off your Tailscale network. By default it joins when the server has a Tailscale key, and each
+  # device counts against the plan limit (50 on the free plan). It only matters at launch, so changing it
+  # replaces the VM.
+  tailscale = false
+
   # Labels for finding VMs. When set, the VM has exactly these tags.
   tags = {
     env   = "test"

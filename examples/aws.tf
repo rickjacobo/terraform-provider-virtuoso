@@ -31,6 +31,9 @@ resource "virtuoso_aws_instance" "web" {
   # instance exists (about $0.08 per GB a month) and is deleted with it.
   disk_gb = 40
 
+  # Keep the instance off your Tailscale network (changing this replaces the instance).
+  tailscale = false
+
   # SSH is always open. Open extra ports only to the addresses that need them.
   ports = [
     { port = 443 },

@@ -16,6 +16,16 @@ type VirtuosoClient struct {
 	endpoint   string
 	apiKey     string
 	httpClient *http.Client
+	// node, when set, sends every call about one VM (/api/v1/vms/{name}...) through the Fleet hub to that node
+	// (/api/v1/fleet/vms/{node}/{name}...), so the same code manages a VM on any server.
+	node string
+}
+
+// onNode returns a client that reaches VMs on the named fleet node through the hub.
+func (c *VirtuosoClient) onNode(node string) *VirtuosoClient {
+	cp := *c
+	cp.node = node
+	return &cp
 }
 
 func NewVirtuosoClient(endpoint, apiKey string, insecure bool) *VirtuosoClient {
@@ -36,41 +46,50 @@ func NewVirtuosoClient(endpoint, apiKey string, insecure bool) *VirtuosoClient {
 // API response types
 
 type VMResponse struct {
-	Name          string  `json:"name"`
-	State         string  `json:"state"`
-	IP            string  `json:"ip"`
-	VCPUs         int64   `json:"vcpus"`
-	MemoryMB      int64   `json:"memory_mb"`
-	Autostart     string  `json:"autostart"`
-	HasVNC        bool    `json:"has_vnc"`
-	DiskCapGB     float64 `json:"disk_cap_gb"`
-	DiskUsedGB    float64 `json:"disk_used_gb"`
-	CloudInit     string  `json:"cloud_init"`
-	Network       string  `json:"network"`
-	Protected     bool    `json:"protected"`
-	Notes         string  `json:"notes"`
+	Name       string  `json:"name"`
+	State      string  `json:"state"`
+	IP         string  `json:"ip"`
+	VCPUs      int64   `json:"vcpus"`
+	MemoryMB   int64   `json:"memory_mb"`
+	Autostart  string  `json:"autostart"`
+	HasVNC     bool    `json:"has_vnc"`
+	DiskCapGB  float64 `json:"disk_cap_gb"`
+	DiskUsedGB float64 `json:"disk_used_gb"`
+	CloudInit  string  `json:"cloud_init"`
+	Network    string  `json:"network"`
+	Protected  bool    `json:"protected"`
+	Notes      string  `json:"notes"`
+	// CPUPercent and MemoryUsedMB are what a running VM uses now. The server leaves them out for a VM that is not
+	// running, one it has not measured twice yet, and when it is too old to report them.
+	CPUPercent   *float64 `json:"cpu_percent,omitempty"`
+	MemoryUsedMB *int64   `json:"memory_used_mb,omitempty"`
 	// Tags are the VM's labels. The server leaves the field out when a VM has none.
 	Tags          map[string]string `json:"tags,omitempty"`
-	Password      string  `json:"password,omitempty"`
-	OSID          string  `json:"os_id,omitempty"`
-	StatusMessage string  `json:"status_message,omitempty"`
+	Password      string            `json:"password,omitempty"`
+	OSID          string            `json:"os_id,omitempty"`
+	StatusMessage string            `json:"status_message,omitempty"`
 }
 
 type LaunchRequest struct {
-	Name       string `json:"name"`
-	Size       string `json:"size,omitempty"`
-	OS         string `json:"os"`
-	SSHKey     string `json:"ssh_key,omitempty"`
-	DiskGB     int64  `json:"disk_gb,omitempty"`
-	Password   string `json:"password,omitempty"`
-	VNC        bool   `json:"vnc,omitempty"`
-	Desktop    bool   `json:"desktop,omitempty"`
-	UserScript string `json:"user_script,omitempty"`
+	Name                string `json:"name"`
+	Size                string `json:"size,omitempty"`
+	OS                  string `json:"os"`
+	SSHKey              string `json:"ssh_key,omitempty"`
+	DiskGB              int64  `json:"disk_gb,omitempty"`
+	Password            string `json:"password,omitempty"`
+	VNC                 bool   `json:"vnc,omitempty"`
+	Desktop             bool   `json:"desktop,omitempty"`
+	UserScript          string `json:"user_script,omitempty"`
 	PostTailscaleScript string `json:"post_tailscale_script,omitempty"`
-	ISO        string `json:"iso,omitempty"`
-	Bridged    bool   `json:"bridged,omitempty"`
+	ISO                 string `json:"iso,omitempty"`
+	Bridged             bool   `json:"bridged,omitempty"`
 	// Tags are set once the VM is launched. Needs a server that supports tags.
 	Tags map[string]string `json:"tags,omitempty"`
+	// VPC puts the VM's one network card on this VPC. SecurityGroups are the VPC groups the card joins.
+	VPC            string   `json:"vpc,omitempty"`
+	SecurityGroups []string `json:"security_groups,omitempty"`
+	// Tailscale is only ever sent as false, to keep the VM off the tailnet. Left out, the server decides as before.
+	Tailscale *bool `json:"tailscale,omitempty"`
 }
 
 type LaunchResponse struct {
@@ -114,6 +133,9 @@ func (c *VirtuosoClient) doRequest(method, path string, body interface{}) (*http
 		reqBody = bytes.NewReader(data)
 	}
 
+	if c.node != "" && strings.HasPrefix(path, "/api/v1/vms/") {
+		path = "/api/v1/fleet/vms/" + url.PathEscape(c.node) + "/" + strings.TrimPrefix(path, "/api/v1/vms/")
+	}
 	req, err := http.NewRequest(method, c.endpoint+path, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)

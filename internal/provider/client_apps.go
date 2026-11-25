@@ -44,6 +44,8 @@ type K8sCreateRequest struct {
 	Headlamp    bool   `json:"headlamp,omitempty"`
 	K9s         bool   `json:"k9s,omitempty"`
 	WorkerCount int64  `json:"worker_count,omitempty"`
+	// Tailscale is only ever sent as false, to keep the cluster and its workers off the tailnet.
+	Tailscale *bool `json:"tailscale,omitempty"`
 }
 
 type K8sCredentials struct {
@@ -224,6 +226,8 @@ type DockerCreateRequest struct {
 	Size    string `json:"size,omitempty"`
 	DiskGB  int64  `json:"disk_gb,omitempty"`
 	Bridged bool   `json:"bridged,omitempty"`
+	// Tailscale is only ever sent as false, to keep the VM off the tailnet.
+	Tailscale *bool `json:"tailscale,omitempty"`
 }
 
 const dockerPath = "/api/v1/apps/docker/instances"

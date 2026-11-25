@@ -24,6 +24,8 @@ type VMDataSourceModel struct {
 	HasVNC    types.Bool    `tfsdk:"has_vnc"`
 	DiskCapGB types.Float64 `tfsdk:"disk_cap_gb"`
 	DiskUsedGB types.Float64 `tfsdk:"disk_used_gb"`
+	CPUPercent   types.Float64 `tfsdk:"cpu_percent"`
+	MemoryUsedMB types.Int64   `tfsdk:"memory_used_mb"`
 	CloudInit types.String  `tfsdk:"cloud_init"`
 	Network   types.String  `tfsdk:"network"`
 	Password  types.String  `tfsdk:"password"`
@@ -49,6 +51,8 @@ func (d *VMDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, res
 			"ip":          schema.StringAttribute{Description: "IP address.", Computed: true},
 			"vcpus":       schema.Int64Attribute{Description: "Virtual CPUs.", Computed: true},
 			"memory_mb":   schema.Int64Attribute{Description: "Memory in MB.", Computed: true},
+			"cpu_percent":    schema.Float64Attribute{Description: "Share of the VM's own vCPUs it is using now, 0 to 100, measured by the server it runs on. Null when the VM is not running or has not been measured yet.", Computed: true},
+			"memory_used_mb": schema.Int64Attribute{Description: "Memory in MB the server holds for the VM now. Null when the VM is not running or has not been measured yet.", Computed: true},
 			"autostart":   schema.StringAttribute{Description: "Autostart setting.", Computed: true},
 			"has_vnc":     schema.BoolAttribute{Description: "VNC available.", Computed: true},
 			"disk_cap_gb": schema.Float64Attribute{Description: "Disk capacity GB.", Computed: true},
@@ -100,6 +104,7 @@ func (d *VMDataSource) Read(ctx context.Context, req datasource.ReadRequest, res
 	config.HasVNC = types.BoolValue(vm.HasVNC)
 	config.DiskCapGB = types.Float64Value(vm.DiskCapGB)
 	config.DiskUsedGB = types.Float64Value(vm.DiskUsedGB)
+	config.CPUPercent, config.MemoryUsedMB = usageFloat(vm.CPUPercent), usageInt(vm.MemoryUsedMB)
 	config.CloudInit = types.StringValue(vm.CloudInit)
 	config.Network = types.StringValue(vm.Network)
 	config.Notes = types.StringValue(vm.Notes)

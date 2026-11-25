@@ -50,6 +50,7 @@ type AWSInstanceResourceModel struct {
 	OS           types.String   `tfsdk:"os"`
 	SSHKey       types.String   `tfsdk:"ssh_key"`
 	UserScript   types.String   `tfsdk:"user_script"`
+	Tailscale    types.Bool     `tfsdk:"tailscale"`
 	DiskGB       types.Int64    `tfsdk:"disk_gb"`
 	Ports        []AWSPortModel `tfsdk:"ports"`
 	// Computed
@@ -126,6 +127,7 @@ func (r *AWSInstanceResource) Schema(_ context.Context, _ resource.SchemaRequest
 				Optional:      true,
 				PlanModifiers: []planmodifier.Int64{int64planmodifier.RequiresReplace()},
 			},
+			"tailscale": tailscaleAttribute("instance"),
 			"ports": schema.ListNestedAttribute{
 				Description:   "Extra ports to open. SSH (22) is always open. At most 10.",
 				Optional:      true,
@@ -219,6 +221,7 @@ func launchRequestFromPlan(plan AWSInstanceResourceModel) AWSLaunchRequest {
 		SSHKey:       plan.SSHKey.ValueString(),
 		UserScript:   plan.UserScript.ValueString(),
 		DiskGB:       plan.DiskGB.ValueInt64(),
+		Tailscale:    tailscaleOptOut(plan.Tailscale),
 	}
 	if !plan.Region.IsNull() && !plan.Region.IsUnknown() {
 		launch.Region = plan.Region.ValueString()

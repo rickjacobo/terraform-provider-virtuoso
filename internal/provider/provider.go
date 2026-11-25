@@ -101,6 +101,11 @@ func (p *VirtuosoProvider) Resources(_ context.Context) []func() resource.Resour
 		NewVMScheduleResource,
 		NewRestorePolicyResource,
 		NewSnapshotResource,
+		NewVPCResource,
+		NewSecurityGroupResource,
+		NewSecurityGroupRuleResource,
+		NewFloatingIPResource,
+		NewVPCPeeringResource,
 	}
 }
 

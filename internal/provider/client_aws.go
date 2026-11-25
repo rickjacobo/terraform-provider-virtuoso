@@ -28,6 +28,8 @@ type AWSLaunchRequest struct {
 	Ports        []AWSPort `json:"ports,omitempty"`
 	// ConfirmCost is always true from Terraform: declaring the resource and running apply is the confirmation.
 	ConfirmCost bool `json:"confirm_cost"`
+	// Tailscale is only ever sent as false, to keep the instance off the tailnet.
+	Tailscale *bool `json:"tailscale,omitempty"`
 }
 
 type AWSLaunchResponse struct {
